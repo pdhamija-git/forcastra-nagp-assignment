@@ -1,0 +1,14 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nagp-api-pdb
+  namespace: nagp
+  labels:
+    app: nagp-api
+    tier: api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: nagp-api
+  unhealthyPodEvictionPolicy: AlwaysAllow
