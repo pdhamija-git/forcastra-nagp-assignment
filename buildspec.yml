@@ -1,0 +1,82 @@
+version: 0.2
+
+# All sensitive/environment-specific values are set as environment variables
+# in the CodeBuild project console (not hardcoded here):
+#
+#   AWS_ACCOUNT_ID   → e.g. 350358882905
+#   APP_DB_HOST      → e.g. 3.108.191.207
+#   APP_DB_PORT      → e.g. 30432
+#   APP_DB_USER      → e.g. postgres
+#   APP_DB_PASSWORD  → e.g. password
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: ap-south-1
+    IMAGE_REPO_NAME: test
+    EKS_CLUSTER_NAME: forcastra-dev-eks
+    K8S_NAMESPACE: nagp
+
+phases:
+  install:
+    commands:
+      - echo "Installing kubectl"
+      - curl -LO https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl
+      - chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+
+  pre_build:
+    commands:
+      - export IMAGE_TAG=one-time-run-$CODEBUILD_BUILD_NUMBER
+      - echo "IMAGE_TAG=$IMAGE_TAG"
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTER_NAME
+      - kubectl cluster-info
+
+  build:
+    commands:
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG ./app
+
+  post_build:
+    commands:
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:latest
+
+      - echo "Deploying to EKS"
+      - kubectl get namespace $K8S_NAMESPACE || kubectl create namespace $K8S_NAMESPACE
+
+      - kubectl delete secret ecr-secret -n $K8S_NAMESPACE --ignore-not-found=true
+      - kubectl create secret docker-registry ecr-secret
+          --docker-server=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+          --docker-username=AWS
+          --docker-password=$(aws ecr get-login-password --region $AWS_DEFAULT_REGION)
+          -n $K8S_NAMESPACE
+
+      - kubectl delete secret db-secret -n $K8S_NAMESPACE --ignore-not-found=true
+      - kubectl create secret generic db-secret
+          --from-literal=DB_USER=$APP_DB_USER
+          --from-literal=DB_PASSWORD=$APP_DB_PASSWORD
+          --from-literal=POSTGRES_DB=nagpdb
+          -n $K8S_NAMESPACE
+
+      - kubectl delete configmap api-config -n $K8S_NAMESPACE --ignore-not-found=true
+      - kubectl create configmap api-config
+          --from-literal=DB_HOST=$APP_DB_HOST
+          --from-literal=DB_PORT=$APP_DB_PORT
+          --from-literal=DB_NAME=nagpdb
+          --from-literal=PORT=3000
+          -n $K8S_NAMESPACE
+
+      - kubectl apply -f k8s/00-namespace.yaml
+      - kubectl apply -f k8s/03-postgres-init-configmap.yaml
+      - kubectl apply -f k8s/04-postgres-pvc.yaml
+      - kubectl apply -f k8s/05-postgres-deployment.yaml
+      - kubectl apply -f k8s/06-postgres-service.yaml
+      - kubectl apply -f k8s/07-api-deployment.yaml
+      - kubectl apply -f k8s/08-api-service.yaml
+      - kubectl apply -f k8s/09-api-hpa.yaml
+      - kubectl apply -f k8s/10-api-ingress.yaml
+      - kubectl rollout status deployment/nagp-api -n $K8S_NAMESPACE --timeout=3m
+
+      - echo "Verifying pods"
+      - kubectl get pods -n $K8S_NAMESPACE -l app=nagp-api

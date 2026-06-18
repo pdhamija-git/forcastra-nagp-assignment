@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-sql
+  namespace: nagp
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS employees (
+      id        SERIAL PRIMARY KEY,
+      name      VARCHAR(100) NOT NULL,
+      department VARCHAR(100) NOT NULL,
+      role      VARCHAR(100) NOT NULL,
+      salary    NUMERIC(10,2) NOT NULL,
+      location  VARCHAR(100) NOT NULL
+    );
+
+    INSERT INTO employees (name, department, role, salary, location) VALUES
+      ('Alice Johnson',  'Engineering', 'Senior Developer',   95000.00, 'New York'),
+      ('Bob Smith',      'Engineering', 'DevOps Engineer',    88000.00, 'San Francisco'),
+      ('Carol White',    'Marketing',   'Marketing Manager',  75000.00, 'Chicago'),
+      ('David Brown',    'Sales',       'Sales Executive',    65000.00, 'Austin'),
+      ('Eve Davis',      'HR',          'HR Manager',         72000.00, 'Seattle'),
+      ('Frank Wilson',   'Engineering', 'Backend Developer',  82000.00, 'Boston'),
+      ('Grace Lee',      'Product',     'Product Manager',    90000.00, 'New York'),
+      ('Henry Taylor',   'Finance',     'Financial Analyst',  78000.00, 'Dallas')
+    ON CONFLICT DO NOTHING;
