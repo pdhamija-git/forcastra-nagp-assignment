@@ -142,6 +142,83 @@ curl http://<ALB-HOSTNAME>/api/employees
 
 ---
 
+## 🎯 Key Features Demonstration
+
+### 🔄 Rolling Updates
+**File:** `k8s/07-api-deployment.yaml`
+```yaml
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1           # 1 extra pod during update
+    maxUnavailable: 1     # Always keep 3+ pods running
+```
+**Demo:**
+```bash
+kubectl set image deployment/nagp-api nagp-api=newimage:v2 -n nagp
+kubectl rollout status deployment/nagp-api -n nagp
+```
+
+### 🌐 Externally Accessible
+**Files:** 
+- `k8s/10-api-ingress.yaml` - AWS ALB Ingress
+- `k8s/08-api-service.yaml` - Service exposure
+
+**Access Methods:**
+```bash
+# Port-forward (immediate)
+kubectl port-forward svc/nagp-api-service 8000:80 -n nagp
+
+# Ingress (when ALB ready)
+curl http://<ALB-hostname>/api/employees
+```
+
+### 🏥 Self-Healing
+**File:** `k8s/07-api-deployment.yaml` + `app/main.py`
+
+**Probes Configured:**
+- **Liveness Probe:** Restarts unhealthy pods (15s interval, 3 failures)
+- **Readiness Probe:** Prevents traffic to unhealthy pods (5s interval, 3 failures)
+- **Health Endpoint:** `/health` checks database connectivity
+
+**Demo:**
+```bash
+# Delete a pod - watch it automatically recover
+kubectl delete pod <pod-name> -n nagp
+kubectl get pods -n nagp --watch
+# New pod created automatically within 30 seconds!
+```
+
+### 📈 Horizontal Pod Autoscaler (HPA)
+**File:** `k8s/09-api-hpa.yaml`
+
+**Configuration:**
+- Min replicas: 2 pods
+- Max replicas: 8 pods
+- CPU trigger: 70% utilization
+- Memory trigger: 80% utilization
+- Scale-up: Add 2 pods per 60 seconds
+- Scale-down: Remove 1 pod per 60 seconds
+
+**Monitor HPA:**
+```bash
+# Check status
+kubectl get hpa -n nagp
+# Output: cpu: 8%/70%, memory: 83%/80%, REPLICAS: 4
+
+# Watch scaling in action
+kubectl get hpa nagp-api-hpa -n nagp --watch
+
+# Generate load to test scaling
+kubectl run -i --tty load-gen --rm --image=busybox --restart=Never -- sh
+# while true; do wget -q -O- http://nagp-api-service.nagp.svc.cluster.local/api/employees; done
+
+# Watch pods scale up (in another terminal)
+kubectl get pods -n nagp -l app=nagp-api --watch
+```
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
