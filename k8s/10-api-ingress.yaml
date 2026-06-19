@@ -4,14 +4,15 @@ metadata:
   name: nagp-api-ingress
   namespace: nagp
   annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
 spec:
-  ingressClassName: nginx
+  ingressClassName: alb
   rules:
-    - host: nagp-api.local
-      http:
+    - http:
         paths:
           - path: /
             pathType: Prefix
