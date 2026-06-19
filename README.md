@@ -114,9 +114,10 @@ curl http://<ALB-HOSTNAME>/api/employees
 - ✅ **Rolling Updates** - Zero-downtime deployments
 - ✅ **Health Checks** - Liveness & Readiness probes
 - ✅ **HPA Enabled** - Auto-scales 2-8 pods based on CPU/Memory
-- ✅ **Connection Pooling** - SimpleConnectionPool (min:1, max:10)
-- ✅ **ConfigMap** - Database configuration externalized
-- ✅ **Secrets** - Credentials securely managed
+- ✅ **Connection Pooling** - SimpleConnectionPool (min:1, max:10) with 3s timeout
+- ✅ **Config Separation** - External ConfigMap + Secrets (no hardcoded values)
+- ✅ **ConfigMap** - Database connection parameters externalized
+- ✅ **Secrets** - Credentials securely managed (encrypted)
 - ✅ **Resource Limits** - CPU: 50m-200m, Memory: 64Mi-256Mi
 
 ### Database Tier
@@ -209,6 +210,144 @@ kubectl port-forward svc/nagp-api-service 8000:80 -n nagp
 # Test API
 curl http://localhost:8000/api/employees
 ```
+
+---
+
+## 🔌 Connection Pooling & Config Separation
+
+### Connection Pooling Implementation
+
+**File:** `app/main.py` (Lines 10-19)
+
+```python
+from psycopg2 import pool as pg_pool
+
+# SimpleConnectionPool with configurable limits
+db_pool = pg_pool.SimpleConnectionPool(
+    minconn=1,           # Minimum idle connections
+    maxconn=10,          # Maximum concurrent connections
+    host=os.environ.get("DB_HOST"),
+    port=int(os.environ.get("DB_PORT", 5432)),
+    dbname=os.environ.get("DB_NAME"),
+    user=os.environ.get("DB_USER"),
+    password=os.environ.get("DB_PASSWORD"),
+    connect_timeout=3,   # Connection timeout in seconds
+)
+```
+
+**Benefits:**
+- ✅ Reuses connections instead of creating new ones per request
+- ✅ Reduces database connection overhead
+- ✅ Better performance under load
+- ✅ Min 1 / Max 10 ensures efficient resource usage
+- ✅ Connection timeout prevents hanging connections
+
+**Usage in Endpoints:**
+```python
+@app.get("/api/employees")
+def get_employees():
+    conn = None
+    try:
+        conn = db_pool.getconn()           # Get from pool
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM employees ORDER BY id")
+            # ... process results
+        return {"success": True, "count": len(rows), "data": rows}
+    finally:
+        if conn:
+            db_pool.putconn(conn)          # Return to pool
+```
+
+---
+
+### Configuration Separation
+
+**No hardcoded configuration! All configs come from Kubernetes:**
+
+#### **1. Database Parameters (ConfigMap)**
+**Created by:** `buildspec.yml`
+```bash
+kubectl create configmap api-config -n nagp \
+  --from-literal=DB_HOST=postgres-service.nagp.svc.cluster.local \
+  --from-literal=DB_PORT=5432 \
+  --from-literal=DB_NAME=nagpdb \
+  --from-literal=PORT=3000
+```
+
+**Used in:** `k8s/07-api-deployment.yaml`
+```yaml
+envFrom:
+  - configMapRef:
+      name: api-config    # Mounts all key-value pairs as env vars
+```
+
+#### **2. Sensitive Credentials (Secrets)**
+**Created by:** `buildspec.yml`
+```bash
+kubectl create secret generic db-secret -n nagp \
+  --from-literal=DB_USER=postgres \
+  --from-literal=DB_PASSWORD=<encrypted> \
+  --from-literal=POSTGRES_DB=nagpdb
+```
+
+**Used in:** `k8s/07-api-deployment.yaml`
+```yaml
+env:
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: DB_USER
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: DB_PASSWORD
+```
+
+#### **3. Application Reads Environment Variables**
+**File:** `app/main.py`
+```python
+import os
+
+# All config from environment, never hardcoded
+host = os.environ.get("DB_HOST")
+port = int(os.environ.get("DB_PORT", 5432))
+dbname = os.environ.get("DB_NAME")
+user = os.environ.get("DB_USER")
+password = os.environ.get("DB_PASSWORD")
+```
+
+---
+
+### Configuration Flow
+
+```
+AWS CodeBuild (buildspec.yml)
+        ↓
+Creates Kubernetes ConfigMap (public) + Secret (encrypted)
+        ↓
+k8s/07-api-deployment.yaml
+  - Mounts ConfigMap as environment variables
+  - Mounts Secret as environment variables
+        ↓
+Pod Runtime
+  - All config injected as environment variables
+  - Application reads from os.environ.get()
+        ↓
+app/main.py
+  - No hardcoded values
+  - Config externalized completely
+  - Easy to change without code changes
+```
+
+**Benefits:**
+- ✅ Application code has NO hardcoded configs
+- ✅ ConfigMap = public data (host, port, database name)
+- ✅ Secrets = encrypted sensitive data (user, password)
+- ✅ Easy to update config without redeploying code
+- ✅ Different configs per environment (dev, staging, prod)
+- ✅ Follows 12-factor app methodology
 
 ---
 
