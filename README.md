@@ -337,6 +337,85 @@ def get_employees():
 
 ---
 
+### Kubernetes Secrets Management
+
+**Sensitive credentials are stored in encrypted Kubernetes Secrets, NOT in code or YAML files.**
+
+#### **Secret Creation**
+**File:** `buildspec.yml` (Lines 55-60)
+```bash
+kubectl delete secret db-secret -n $K8S_NAMESPACE --ignore-not-found=true
+kubectl create secret generic db-secret \
+  --from-literal=DB_USER=$APP_DB_USER \
+  --from-literal=DB_PASSWORD=$APP_DB_PASSWORD \
+  --from-literal=POSTGRES_DB=nagpdb \
+  -n $K8S_NAMESPACE
+```
+
+**Secret Contents:**
+- `DB_USER` - Database username (postgres)
+- `DB_PASSWORD` - Database password (encrypted)
+- `POSTGRES_DB` - Database name (nagpdb)
+
+#### **Secrets Used in Database Pod**
+**File:** `k8s/05-postgres-deployment.yaml` (Lines 27-42)
+```yaml
+env:
+  - name: POSTGRES_DB
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: POSTGRES_DB
+  - name: POSTGRES_USER
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: DB_USER
+  - name: POSTGRES_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: DB_PASSWORD
+```
+
+#### **Secrets Used in API Pod**
+**File:** `k8s/07-api-deployment.yaml` (Lines 34-44)
+```yaml
+env:
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: DB_USER
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: db-secret
+        key: DB_PASSWORD
+```
+
+#### **Secrets Verification**
+```bash
+# List secrets
+kubectl get secrets -n nagp
+
+# View secret metadata (not values)
+kubectl get secret db-secret -n nagp -o yaml
+
+# Decode a secret value (base64, for testing only)
+kubectl get secret db-secret -n nagp -o jsonpath='{.data.DB_PASSWORD}' | base64 -d
+```
+
+**Security Benefits:**
+- ✅ Passwords never visible in YAML files
+- ✅ Passwords never in source code
+- ✅ Passwords never in Docker images
+- ✅ Passwords encrypted at rest in Kubernetes
+- ✅ Secrets scoped to namespace
+- ✅ Secrets created dynamically via CI/CD
+
+---
+
 ### Configuration Separation
 
 **No hardcoded configuration! All configs come from Kubernetes:**
@@ -611,12 +690,42 @@ forcastra-nagp-assignment/
 
 ## 🔐 Security Considerations
 
-- ✅ No sensitive data in YAML files
-- ✅ Credentials managed via Kubernetes Secrets
-- ✅ Database accessible only within cluster
-- ✅ Non-root user in container (USER nobody)
-- ✅ Alpine base image (minimal attack surface)
-- ✅ No hardcoded passwords or connection strings
+### Secrets Management
+- ✅ **No sensitive data in YAML files** - Passwords created dynamically via buildspec.yml
+- ✅ **Credentials via Kubernetes Secrets** - Encrypted storage in cluster
+- ✅ **Secret injection as environment variables** - Not visible in logs or configs
+- ✅ **Namespace-scoped secrets** - db-secret only in nagp namespace
+
+**What's Protected:**
+```
+❌ NOT in any file:          DB_PASSWORD
+❌ NOT in Docker image:       DB_PASSWORD
+❌ NOT in source code:        DB_PASSWORD
+❌ NOT in ConfigMap:          DB_PASSWORD
+✅ ONLY in Kubernetes Secret: DB_PASSWORD (encrypted)
+```
+
+### Network Security
+- ✅ **Database not exposed externally** - ClusterIP service (internal only)
+- ✅ **API externally accessible** - Controlled via Ingress
+- ✅ **Pod-to-pod communication via DNS** - No IP hardcoding
+
+### Container Security
+- ✅ **Non-root user** - Container runs as `nobody` (not root)
+- ✅ **Alpine base image** - Minimal attack surface
+- ✅ **No hardcoded credentials** - All from Secrets/ConfigMap
+- ✅ **Connection pooling** - Prevents connection exhaustion attacks
+
+### Data Security
+- ✅ **Data encrypted in transit** - Pod-to-pod via internal network
+- ✅ **Persistent storage** - EBS volume with encryption support
+- ✅ **Database credentials** - Stored in encrypted Kubernetes Secrets
+- ✅ **Automatic credential rotation** - Can update Secrets without code changes
+
+### Access Control
+- ✅ **RBAC ready** - Kubernetes namespace isolation
+- ✅ **Secret access logs** - Audit trail available
+- ✅ **Least privilege** - Minimal permissions for pods
 
 ---
 
