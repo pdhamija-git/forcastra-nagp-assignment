@@ -9,6 +9,7 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/subnets: subnet-00c26451ea902e538,subnet-0ff2a4552c5b8e4d0,subnet-0fc01c280111dd6d9
 spec:
   ingressClassName: alb
   rules:
