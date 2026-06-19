@@ -1,811 +1,254 @@
-# NAGP Kubernetes Multi-tier Architecture
+# NAGP - Multi-Tier Kubernetes Architecture
 
-A production-ready multi-tier microservices architecture deployed on Kubernetes featuring a FastAPI service tier and PostgreSQL database tier with auto-scaling, data persistence, and cost optimization.
+A simple multi-tier application running on Kubernetes with an API service tier and PostgreSQL database tier.
 
----
+## What's Inside
 
-## 📋 Project Links
+**API Service:** FastAPI application that exposes employee data via REST API  
+**Database:** PostgreSQL with 8 employee records  
+**Orchestration:** Kubernetes on AWS EKS with auto-scaling and self-healing
 
-### 🔗 Repository
-**GitHub Repository:** [forcastra-nagp-assignment](https://github.com/priyanka-dhamija/forcastra-nagp-assignment)  
-**GitLab Repository:** [forcastra-nagp-assignment](https://gitlab.com/priyanka-dhamija/forcastra-nagp-assignment)
+## Quick Links
 
-### 🐳 Docker Images
-**Docker Hub:** [priyankadhamija/nagp-api](https://hub.docker.com/r/priyankadhamija/nagp-api)  
-- Image: `priyankadhamija/nagp-api:latest`
-- Base: Python 3.12 Alpine
-- Size: ~150MB (minimal footprint)
+- **Repository:** https://github.com/priyanka-dhamija/forcastra-nagp-assignment
+- **Docker Image:** https://hub.docker.com/r/priyankadhamija/nagp-api
+- **API Endpoint (Local):** http://localhost:8000/api/employees
+- **Documentation:** See COMPREHENSIVE_DOCUMENTATION.md
 
-### 🌐 Service API Tier Access
+## Getting Started
 
-**✅ Immediate Access (Port Forward)**
+### Prerequisites
+- kubectl configured for EKS cluster
+- AWS EKS cluster running
+- 4+ CPU and 512Mi memory available
+
+### Deploy
+
 ```bash
-# Terminal 1: Start port forward
+# Create namespace and deploy all resources
+kubectl apply -f k8s/00-namespace.yaml
+kubectl apply -f k8s/
+
+# Verify deployment
+kubectl get all -n nagp
+```
+
+### Access the API
+
+**Option 1: Port Forward (for testing)**
+```bash
 kubectl port-forward svc/nagp-api-service 8000:80 -n nagp
-
-# Terminal 2: Access API
 curl http://localhost:8000/api/employees
-curl http://localhost:8000/health
-
-# In browser
-http://localhost:8000/api/employees
 ```
 
-**Sample Response:**
-```json
-{
-  "success": true,
-  "count": 8,
-  "data": [
-    {
-      "id": 1,
-      "name": "Alice Johnson",
-      "department": "Engineering",
-      "role": "Senior Developer",
-      "salary": 95000.0,
-      "location": "New York"
-    }
-    // ... 7 more records
-  ]
-}
-```
-
-**Optional: AWS ALB (Production Setup)**
-
-If your cluster has ALB subnet tagging configured:
+**Option 2: Via ALB (production)**
 ```bash
-# Get ALB endpoint
+# Get ALB DNS
 kubectl get ingress -n nagp -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
 
-# Access via ALB
+# Access API
 curl http://<ALB-HOSTNAME>/api/employees
 ```
 
-**Note:** ALB requires subnets tagged with `kubernetes.io/role/elb=1`. Contact your cluster admin if ALB is not provisioning.
+## API Endpoints
 
----
+- `GET /` - Root endpoint with documentation
+- `GET /health` - Health check (verifies DB connection)
+- `GET /api/employees` - Get all employees (8 records)
 
-## 🏗️ Architecture Overview
+## What's Running
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    External Users (Internet)                 │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                    ┌────▼────┐
-                    │   ALB    │ (AWS Load Balancer)
-                    └────┬────┘
-                         │
-                ┌────────▼──────────┐
-                │  Ingress (nagp)   │
-                └────────┬──────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-     ┌──▼──┐          ┌──▼──┐         ┌──▼──┐
-     │ API │          │ API │ ... 4x  │ API │  (4 pods, HPA scaling)
-     │ Pod │          │ Pod │         │ Pod │  (ClusterIP: 172.20.23.225)
-     └──┬──┘          └──┬──┘         └──┬──┘
-        │                │                │
-        └────────────────┼────────────────┘
-                         │
-                    ┌────▼────────────┐
-                    │ postgres-svc    │ (ClusterIP: 172.20.143.244)
-                    │ (Internal Only) │
-                    └────┬────────────┘
-                         │
-                    ┌────▼────────────┐
-                    │  PostgreSQL     │ (1 pod, Recreate strategy)
-                    │  (8 records)    │
-                    └────┬────────────┘
-                         │
-                    ┌────▼────────────┐
-                    │   PVC (1Gi)     │ (EBS Volume)
-                    │ (Data Persists) │
-                    └─────────────────┘
-```
+**4 API Pods**
+- FastAPI on port 3000
+- Load balanced via Kubernetes Service
+- Auto-scales from 2-8 pods based on CPU/memory
+- Requests: 50m CPU, 64Mi memory
+- Limits: 200m CPU, 256Mi memory
 
----
+**1 Database Pod**
+- PostgreSQL 15 on port 5432
+- Persistent storage (1Gi EBS volume)
+- Internal access only (ClusterIP)
+- Data survives pod restarts
 
-## ✨ Features
+## Key Features
 
-### Service API Tier
-- ✅ **4 Pods** - High availability and load distribution
-- ✅ **Rolling Updates** - Zero-downtime deployments
-- ✅ **Health Checks** - Liveness & Readiness probes
-- ✅ **HPA Enabled** - Auto-scales 2-8 pods based on CPU/Memory
-- ✅ **Connection Pooling** - SimpleConnectionPool (min:1, max:10) with 3s timeout
-- ✅ **Config Separation** - External ConfigMap + Secrets (no hardcoded values)
-- ✅ **ConfigMap** - Database connection parameters externalized
-- ✅ **Secrets** - Credentials securely managed (encrypted)
-- ✅ **Resource Limits** - CPU: 50m-200m, Memory: 64Mi-256Mi
+✅ **Self-Healing** - Pods automatically restart if they fail  
+✅ **Data Persistence** - Database data survives pod deletion  
+✅ **Auto-Scaling** - HPA scales pods based on load  
+✅ **Rolling Updates** - Zero-downtime deployments  
+✅ **Secure Config** - Passwords in encrypted Secrets, config in ConfigMap  
+✅ **External Access** - Exposed via AWS ALB Ingress  
+✅ **Service DNS** - No hardcoded Pod IPs, uses Kubernetes DNS  
+✅ **Cost Optimized** - 50% resource reduction, efficient scaling
 
-### Database Tier
-- ✅ **PostgreSQL 15** - Latest stable version
-- ✅ **Persistent Storage** - 1Gi EBS volume (data survives pod deletion)
-- ✅ **Auto-Recovery** - Recreate strategy for stateful workloads
-- ✅ **Internal Only** - ClusterIP service (not exposed externally)
-- ✅ **Initialization** - 8 employee records pre-loaded
-- ✅ **Secrets Management** - Credentials via Kubernetes Secrets
+## Kubernetes Resources
 
-### Kubernetes Features
-- ✅ **Namespace Isolation** - Dedicated `nagp` namespace
-- ✅ **Pod Disruption Budget** - Prevents unnecessary disruptions
-- ✅ **Ingress** - AWS ALB controller integration
-- ✅ **Resource Quotas** - Defined requests and limits
-- ✅ **Service Discovery** - Pod-to-pod communication via DNS
+**Deployments:**
+- `nagp-api` - 4 replicas of FastAPI
+- `postgres` - 1 replica of PostgreSQL
 
-### Cost Optimization
-- ✅ **Resource Right-Sizing** - 50-65% reduction from initial allocation
-- ✅ **HPA Tuning** - Prevents over-scaling
-- ✅ **Pod Disruption Budget** - Reduces scaling churn
+**Services:**
+- `nagp-api-service` - Internal load balancer for API (port 80 → 3000)
+- `postgres-service` - Internal database access (port 5432)
 
----
+**Ingress:**
+- `nagp-api-ingress` - AWS ALB for external access
 
-## 🎯 Key Features Demonstration
+**Storage:**
+- `postgres-pvc` - 1Gi persistent volume for database
 
-### 🔄 Rolling Updates
-**File:** `k8s/07-api-deployment.yaml`
-```yaml
-strategy:
-  type: RollingUpdate
-  rollingUpdate:
-    maxSurge: 1           # 1 extra pod during update
-    maxUnavailable: 1     # Always keep 3+ pods running
-```
-**Demo:**
-```bash
-kubectl set image deployment/nagp-api nagp-api=newimage:v2 -n nagp
-kubectl rollout status deployment/nagp-api -n nagp
-```
+**Config:**
+- `api-config` - ConfigMap with database parameters (DB_HOST, DB_PORT, DB_NAME)
+- `db-secret` - Kubernetes Secret with database password (encrypted)
+- `postgres-init-sql` - ConfigMap with database initialization script
 
-### 🌐 Externally Accessible
-**Files:** 
-- `k8s/10-api-ingress.yaml` - AWS ALB Ingress
-- `k8s/08-api-service.yaml` - Service exposure
+**Scaling:**
+- `nagp-api-hpa` - Auto-scaler (min 2, max 8 pods)
 
-**Access Methods:**
-```bash
-# Port-forward (immediate)
-kubectl port-forward svc/nagp-api-service 8000:80 -n nagp
+**Resilience:**
+- `nagp-api-pdb` - Pod Disruption Budget (min 2 pods always available)
 
-# Ingress (when ALB ready)
-curl http://<ALB-hostname>/api/employees
-```
-
-### 🏥 Self-Healing
-**File:** `k8s/07-api-deployment.yaml` + `app/main.py`
-
-**Probes Configured:**
-- **Liveness Probe:** Restarts unhealthy pods (15s interval, 3 failures)
-- **Readiness Probe:** Prevents traffic to unhealthy pods (5s interval, 3 failures)
-- **Health Endpoint:** `/health` checks database connectivity
-
-**Demo:**
-```bash
-# Delete a pod - watch it automatically recover
-kubectl delete pod <pod-name> -n nagp
-kubectl get pods -n nagp --watch
-# New pod created automatically within 30 seconds!
-```
-
-### 📈 Horizontal Pod Autoscaler (HPA)
-**File:** `k8s/09-api-hpa.yaml`
-
-**Configuration:**
-- Min replicas: 2 pods
-- Max replicas: 8 pods
-- CPU trigger: 70% utilization
-- Memory trigger: 80% utilization
-- Scale-up: Add 2 pods per 60 seconds
-- Scale-down: Remove 1 pod per 60 seconds
-
-**Monitor HPA:**
-```bash
-# Check status
-kubectl get hpa -n nagp
-# Output: cpu: 8%/70%, memory: 83%/80%, REPLICAS: 4
-
-# Watch scaling in action
-kubectl get hpa nagp-api-hpa -n nagp --watch
-
-# Generate load to test scaling
-kubectl run -i --tty load-gen --rm --image=busybox --restart=Never -- sh
-# while true; do wget -q -O- http://nagp-api-service.nagp.svc.cluster.local/api/employees; done
-
-# Watch pods scale up (in another terminal)
-kubectl get pods -n nagp -l app=nagp-api --watch
-```
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- AWS EKS cluster (1.24+)
-- kubectl configured
-- Docker Hub account (for pushing images)
-
-### 1. Clone Repository
-```bash
-git clone https://github.com/priyanka-dhamija/forcastra-nagp-assignment.git
-cd forcastra-nagp-assignment
-```
-
-### 2. Build & Push Docker Image
-```bash
-# Build image
-docker build -t priyankadhamija/nagp-api:latest app/
-
-# Push to Docker Hub
-docker push priyankadhamija/nagp-api:latest
-```
-
-### 3. Update Deployment (if using Docker Hub)
-```bash
-# Edit k8s/07-api-deployment.yaml
-# Change image from ECR to Docker Hub:
-# image: priyankadhamija/nagp-api:latest
-```
-
-### 4. Deploy to Kubernetes
-```bash
-# Create namespace
-kubectl apply -f k8s/00-namespace.yaml
-
-# Create secrets
-kubectl create secret generic db-secret -n nagp \
-  --from-literal=DB_USER=postgres \
-  --from-literal=DB_PASSWORD=<your-password> \
-  --from-literal=POSTGRES_DB=nagpdb
-
-# Create ConfigMap
-kubectl create configmap api-config -n nagp \
-  --from-literal=DB_HOST=postgres-service.nagp.svc.cluster.local \
-  --from-literal=DB_PORT=5432 \
-  --from-literal=DB_NAME=nagpdb \
-  --from-literal=PORT=3000
-
-# Apply all manifests
-kubectl apply -f k8s/
-```
-
-### 5. Verify Deployment
-```bash
-# Check pods
-kubectl get pods -n nagp
-
-# Check services
-kubectl get svc -n nagp
-
-# Check ingress
-kubectl get ingress -n nagp
-
-# Port forward for testing
-kubectl port-forward svc/nagp-api-service 8000:80 -n nagp
-
-# Test API
-curl http://localhost:8000/api/employees
-```
-
----
-
-## 🔌 Connection Pooling & Config Separation
-
-### Connection Pooling Implementation
-
-**File:** `app/main.py` (Lines 10-19)
-
-```python
-from psycopg2 import pool as pg_pool
-
-# SimpleConnectionPool with configurable limits
-db_pool = pg_pool.SimpleConnectionPool(
-    minconn=1,           # Minimum idle connections
-    maxconn=10,          # Maximum concurrent connections
-    host=os.environ.get("DB_HOST"),
-    port=int(os.environ.get("DB_PORT", 5432)),
-    dbname=os.environ.get("DB_NAME"),
-    user=os.environ.get("DB_USER"),
-    password=os.environ.get("DB_PASSWORD"),
-    connect_timeout=3,   # Connection timeout in seconds
-)
-```
-
-**Benefits:**
-- ✅ Reuses connections instead of creating new ones per request
-- ✅ Reduces database connection overhead
-- ✅ Better performance under load
-- ✅ Min 1 / Max 10 ensures efficient resource usage
-- ✅ Connection timeout prevents hanging connections
-
-**Usage in Endpoints:**
-```python
-@app.get("/api/employees")
-def get_employees():
-    conn = None
-    try:
-        conn = db_pool.getconn()           # Get from pool
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM employees ORDER BY id")
-            # ... process results
-        return {"success": True, "count": len(rows), "data": rows}
-    finally:
-        if conn:
-            db_pool.putconn(conn)          # Return to pool
-```
-
----
-
-### Kubernetes Secrets Management
-
-**Sensitive credentials are stored in encrypted Kubernetes Secrets, NOT in code or YAML files.**
-
-#### **Secret Creation**
-**File:** `buildspec.yml` (Lines 55-60)
-```bash
-kubectl delete secret db-secret -n $K8S_NAMESPACE --ignore-not-found=true
-kubectl create secret generic db-secret \
-  --from-literal=DB_USER=$APP_DB_USER \
-  --from-literal=DB_PASSWORD=$APP_DB_PASSWORD \
-  --from-literal=POSTGRES_DB=nagpdb \
-  -n $K8S_NAMESPACE
-```
-
-**Secret Contents:**
-- `DB_USER` - Database username (postgres)
-- `DB_PASSWORD` - Database password (encrypted)
-- `POSTGRES_DB` - Database name (nagpdb)
-
-#### **Secrets Used in Database Pod**
-**File:** `k8s/05-postgres-deployment.yaml` (Lines 27-42)
-```yaml
-env:
-  - name: POSTGRES_DB
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: POSTGRES_DB
-  - name: POSTGRES_USER
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: DB_USER
-  - name: POSTGRES_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: DB_PASSWORD
-```
-
-#### **Secrets Used in API Pod**
-**File:** `k8s/07-api-deployment.yaml` (Lines 34-44)
-```yaml
-env:
-  - name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: DB_USER
-  - name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: DB_PASSWORD
-```
-
-#### **Secrets Verification**
-```bash
-# List secrets
-kubectl get secrets -n nagp
-
-# View secret metadata (not values)
-kubectl get secret db-secret -n nagp -o yaml
-
-# Decode a secret value (base64, for testing only)
-kubectl get secret db-secret -n nagp -o jsonpath='{.data.DB_PASSWORD}' | base64 -d
-```
-
-**Security Benefits:**
-- ✅ Passwords never visible in YAML files
-- ✅ Passwords never in source code
-- ✅ Passwords never in Docker images
-- ✅ Passwords encrypted at rest in Kubernetes
-- ✅ Secrets scoped to namespace
-- ✅ Secrets created dynamically via CI/CD
-
----
-
-### Configuration Separation
-
-**No hardcoded configuration! All configs come from Kubernetes:**
-
-#### **1. Database Parameters (ConfigMap)**
-**Created by:** `buildspec.yml`
-```bash
-kubectl create configmap api-config -n nagp \
-  --from-literal=DB_HOST=postgres-service.nagp.svc.cluster.local \
-  --from-literal=DB_PORT=5432 \
-  --from-literal=DB_NAME=nagpdb \
-  --from-literal=PORT=3000
-```
-
-**Used in:** `k8s/07-api-deployment.yaml`
-```yaml
-envFrom:
-  - configMapRef:
-      name: api-config    # Mounts all key-value pairs as env vars
-```
-
-#### **2. Sensitive Credentials (Secrets)**
-**Created by:** `buildspec.yml`
-```bash
-kubectl create secret generic db-secret -n nagp \
-  --from-literal=DB_USER=postgres \
-  --from-literal=DB_PASSWORD=<encrypted> \
-  --from-literal=POSTGRES_DB=nagpdb
-```
-
-**Used in:** `k8s/07-api-deployment.yaml`
-```yaml
-env:
-  - name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: DB_USER
-  - name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: db-secret
-        key: DB_PASSWORD
-```
-
-#### **3. Application Reads Environment Variables**
-**File:** `app/main.py`
-```python
-import os
-
-# All config from environment, never hardcoded
-host = os.environ.get("DB_HOST")
-port = int(os.environ.get("DB_PORT", 5432))
-dbname = os.environ.get("DB_NAME")
-user = os.environ.get("DB_USER")
-password = os.environ.get("DB_PASSWORD")
-```
-
----
-
-### Configuration Flow
-
-```
-AWS CodeBuild (buildspec.yml)
-        ↓
-Creates Kubernetes ConfigMap (public) + Secret (encrypted)
-        ↓
-k8s/07-api-deployment.yaml
-  - Mounts ConfigMap as environment variables
-  - Mounts Secret as environment variables
-        ↓
-Pod Runtime
-  - All config injected as environment variables
-  - Application reads from os.environ.get()
-        ↓
-app/main.py
-  - No hardcoded values
-  - Config externalized completely
-  - Easy to change without code changes
-```
-
-**Benefits:**
-- ✅ Application code has NO hardcoded configs
-- ✅ ConfigMap = public data (host, port, database name)
-- ✅ Secrets = encrypted sensitive data (user, password)
-- ✅ Easy to update config without redeploying code
-- ✅ Different configs per environment (dev, staging, prod)
-- ✅ Follows 12-factor app methodology
-
----
-
-## 📊 API Endpoints
-
-### Root Endpoint
-```bash
-GET /
-```
-Response:
-```json
-{
-  "message": "NAGP Employee API",
-  "endpoints": {
-    "health": "/health",
-    "employees": "/api/employees"
-  }
-}
-```
+## Testing
 
 ### Health Check
 ```bash
-GET /health
-```
-Response (pod is healthy):
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-06-19T05:56:38.391457+00:00"
-}
+curl http://localhost:8000/health
 ```
 
-### Get All Employees
+### Get Employees
 ```bash
-GET /api/employees
-```
-Response:
-```json
-{
-  "success": true,
-  "count": 8,
-  "data": [
-    {
-      "id": 1,
-      "name": "Alice Johnson",
-      "department": "Engineering",
-      "role": "Senior Developer",
-      "salary": 95000.0,
-      "location": "New York"
-    },
-    ...
-  ]
-}
+curl http://localhost:8000/api/employees | jq '.'
 ```
 
----
+Expected response: 8 employee records with id, name, department, role, salary, location
 
-## 🔍 Monitoring & Management
-
-### Check Horizontal Pod Autoscaler
+### Test Self-Healing
 ```bash
-kubectl get hpa -n nagp
-kubectl describe hpa nagp-api-hpa -n nagp
+# Delete an API pod
+kubectl delete pod <pod-name> -n nagp
+
+# Watch recovery
+kubectl get pods -n nagp --watch
+# New pod creates automatically in ~20 seconds
 ```
 
-### Monitor Resource Usage
+### Test Data Persistence
 ```bash
-kubectl top pods -n nagp --containers
-kubectl top nodes
+# Delete database pod
+kubectl delete pod <postgres-pod-name> -n nagp
+
+# Verify data survived
+kubectl get pods -n nagp -l app=postgres  # New pod created
+kubectl exec -it <new-pod> -n nagp -- psql -U postgres -d nagpdb -c "SELECT COUNT(*) FROM employees;"
+# Output: 8 records still there
 ```
 
-### View Logs
+## Files Explained
+
+```
+k8s/
+├── 00-namespace.yaml              - Create nagp namespace
+├── 02-api-pod-disruption-budget.yaml
+├── 03-postgres-init-configmap.yaml - Database schema + 8 records
+├── 04-postgres-pvc.yaml           - Persistent storage (1Gi)
+├── 05-postgres-deployment.yaml    - PostgreSQL pod
+├── 06-postgres-service.yaml       - Internal database access
+├── 07-api-deployment.yaml         - 4 API pods
+├── 08-api-service.yaml            - Load balancer for API
+├── 09-api-hpa.yaml                - Auto-scaler (2-8 pods)
+└── 10-api-ingress.yaml            - AWS ALB for external access
+
+app/
+├── main.py                        - FastAPI application
+├── Dockerfile                     - Container image
+└── requirements.txt               - Python dependencies
+
+buildspec.yml                      - CI/CD pipeline (builds & deploys)
+```
+
+## How It Works
+
+1. **Request comes in** → AWS ALB Ingress
+2. **Ingress routes to** → nagp-api-service (load balancer)
+3. **Service selects** → One of 4 API pods
+4. **API pod processes** → Reads config from ConfigMap, password from Secret
+5. **API connects to** → postgres-service (Kubernetes DNS)
+6. **Service routes to** → PostgreSQL pod
+7. **Database queries** → Data stored on persistent volume
+8. **Response returns** → JSON with 8 employee records
+
+## Cost Optimization
+
+- **Resource Requests:** 50m CPU / 64Mi memory per API pod (50% reduction)
+- **HPA:** Scales down when not busy, scales up on demand
+- **Pod Disruption Budget:** Prevents unnecessary pod churn during maintenance
+- **Actual savings:** ~50% resource reduction, smart scaling prevents over-provisioning
+
+## Configuration
+
+### ConfigMap (Non-Sensitive)
+Located in: `app/main.py` reads from environment
+
+```
+DB_HOST=postgres-service.nagp.svc.cluster.local
+DB_PORT=5432
+DB_NAME=nagpdb
+PORT=3000
+```
+
+### Secrets (Encrypted)
+```
+DB_USER=postgres
+DB_PASSWORD=[encrypted]
+POSTGRES_DB=nagpdb
+```
+
+No passwords are hardcoded in YAML files or code. All sensitive data is in encrypted Kubernetes Secrets.
+
+## Troubleshooting
+
+### API pods not starting?
 ```bash
-# API logs
-kubectl logs -f deployment/nagp-api -n nagp
-
-# Database logs
-kubectl logs -f deployment/postgres -n nagp
-```
-
-### Access Database Directly
-```bash
-kubectl exec -it <postgres-pod> -n nagp -- psql -U postgres -d nagpdb
-```
-
----
-
-## 🧪 Testing Data Persistence
-
-```bash
-# 1. Get current PostgreSQL pod
-POD=$(kubectl get pod -n nagp -l app=postgres -o jsonpath='{.items[0].metadata.name}')
-
-# 2. Delete the pod (Kubernetes will auto-create a new one)
-kubectl delete pod $POD -n nagp
-
-# 3. Wait for recovery (~20 seconds)
-kubectl get pods -n nagp -l app=postgres --watch
-
-# 4. Verify data is still there
-NEW_POD=$(kubectl get pod -n nagp -l app=postgres -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it $NEW_POD -n nagp -- psql -U postgres -d nagpdb -c "SELECT COUNT(*) FROM employees;"
-
-# Should return: 8 records ✅
-```
-
----
-
-## 📈 Performance Metrics
-
-**Deployment Characteristics:**
-- **Startup Time:** ~30 seconds (API pods)
-- **Database Recovery:** ~20 seconds (new pod + data mount)
-- **API Response Time:** <100ms (8 records retrieval)
-- **Memory Usage:** ~30-35Mi per API pod, ~50Mi for database
-- **CPU Usage:** ~5-10m per API pod, ~8-12m for database
-
----
-
-## 💰 Cost Optimization
-
-**Current Resource Allocation:**
-- API: 50m CPU, 64Mi RAM per pod (×4 pods)
-- Database: 50m CPU, 64Mi RAM
-
-**Savings Achieved:** 50-65% reduction from initial allocation
-
-**Three Key Optimizations Implemented:**
-1. **Pod Disruption Budget** - Prevents scaling churn (5-10% savings)
-2. **Resource Right-Sizing** - Based on observed metrics (20-30% savings)
-3. **HPA Configuration** - Optimized scaling thresholds (15-25% savings)
-
----
-
-## 📁 Project Structure
-
-```
-forcastra-nagp-assignment/
-├── k8s/
-│   ├── 00-namespace.yaml                 # Kubernetes namespace
-│   ├── 02-api-pod-disruption-budget.yaml # Pod disruption budget
-│   ├── 03-postgres-init-configmap.yaml  # Database initialization
-│   ├── 04-postgres-pvc.yaml             # Persistent volume claim
-│   ├── 05-postgres-deployment.yaml      # PostgreSQL deployment
-│   ├── 06-postgres-service.yaml         # Database service
-│   ├── 07-api-deployment.yaml           # API deployment (4 pods)
-│   ├── 08-api-service.yaml              # API service
-│   ├── 09-api-hpa.yaml                  # Horizontal Pod Autoscaler
-│   └── 10-api-ingress.yaml              # Ingress (AWS ALB)
-├── app/
-│   ├── main.py                          # FastAPI application
-│   ├── Dockerfile                       # Container image definition
-│   └── requirements.txt                 # Python dependencies
-├── buildspec.yml                        # CI/CD pipeline (AWS CodeBuild)
-├── README.md                            # This file
-├── DEPLOYMENT_SUCCESS.md                # Deployment verification
-├── DATA_PERSISTENCE_TEST.md             # Data persistence test results
-├── COST_OPTIMIZATION_SUMMARY.md         # Cost optimization details
-├── COMPLIANCE_REVIEW.md                 # Requirement compliance
-└── REQUIREMENTS_CHECKLIST.md            # Quick reference checklist
-```
-
----
-
-## ✅ Kubernetes Requirements Met
-
-| Requirement | Status | Details |
-|---|---|---|
-| Service API Tier - 4 pods | ✅ | All pods running |
-| Service API - Exposed externally | ✅ | AWS ALB Ingress |
-| Service API - Rolling updates | ✅ | RollingUpdate strategy |
-| Service API - ConfigMap | ✅ | api-config created |
-| Service API - Secrets | ✅ | db-secret for credentials |
-| Service API - CPU/Memory limits | ✅ | 50m/64Mi requests, 200m/256Mi limits |
-| Database Tier - 1 pod | ✅ | PostgreSQL running |
-| Database - Persistent storage | ✅ | 1Gi PVC bound |
-| Database - Internal only | ✅ | ClusterIP service |
-| Database - 5-10 records | ✅ | 8 employee records |
-| Database - Data persistence | ✅ | Tested & verified |
-| Database - Auto-recovery | ✅ | Pod recreates in 20 seconds |
-| Cost Optimization | ✅ | 3 opportunities identified & implemented |
-
----
-
-## 🔐 Security Considerations
-
-### Secrets Management
-- ✅ **No sensitive data in YAML files** - Passwords created dynamically via buildspec.yml
-- ✅ **Credentials via Kubernetes Secrets** - Encrypted storage in cluster
-- ✅ **Secret injection as environment variables** - Not visible in logs or configs
-- ✅ **Namespace-scoped secrets** - db-secret only in nagp namespace
-
-**What's Protected:**
-```
-❌ NOT in any file:          DB_PASSWORD
-❌ NOT in Docker image:       DB_PASSWORD
-❌ NOT in source code:        DB_PASSWORD
-❌ NOT in ConfigMap:          DB_PASSWORD
-✅ ONLY in Kubernetes Secret: DB_PASSWORD (encrypted)
-```
-
-### Network Security
-- ✅ **Database not exposed externally** - ClusterIP service (internal only)
-- ✅ **API externally accessible** - Controlled via Ingress
-- ✅ **Pod-to-pod communication via DNS** - No IP hardcoding
-
-### Container Security
-- ✅ **Non-root user** - Container runs as `nobody` (not root)
-- ✅ **Alpine base image** - Minimal attack surface
-- ✅ **No hardcoded credentials** - All from Secrets/ConfigMap
-- ✅ **Connection pooling** - Prevents connection exhaustion attacks
-
-### Data Security
-- ✅ **Data encrypted in transit** - Pod-to-pod via internal network
-- ✅ **Persistent storage** - EBS volume with encryption support
-- ✅ **Database credentials** - Stored in encrypted Kubernetes Secrets
-- ✅ **Automatic credential rotation** - Can update Secrets without code changes
-
-### Access Control
-- ✅ **RBAC ready** - Kubernetes namespace isolation
-- ✅ **Secret access logs** - Audit trail available
-- ✅ **Least privilege** - Minimal permissions for pods
-
----
-
-## 📚 Documentation
-
-- **DEPLOYMENT_SUCCESS.md** - Live deployment status and verification
-- **DATA_PERSISTENCE_TEST.md** - Data persistence testing and results
-- **COST_OPTIMIZATION_SUMMARY.md** - Three cost optimization opportunities with implementation details
-- **COST_OPTIMIZATION.md** - Comprehensive optimization guide with roadmap
-- **COMPLIANCE_REVIEW.md** - Detailed requirement compliance analysis
-- **REQUIREMENTS_CHECKLIST.md** - Quick reference checklist
-
----
-
-## 🆘 Troubleshooting
-
-### Pods in CrashLoopBackOff
-```bash
-# Check logs
+kubectl describe pod <pod-name> -n nagp
 kubectl logs <pod-name> -n nagp
+```
 
-# Common issue: Database not ready
-# Solution: Ensure PostgreSQL pod is Running first
+### Can't connect to database?
+```bash
+# Verify database pod is running
 kubectl get pods -n nagp -l app=postgres
-```
 
-### Can't connect to database
-```bash
-# Verify ConfigMap
+# Check ConfigMap has correct values
 kubectl get configmap api-config -n nagp -o yaml
-
-# Verify Secrets
-kubectl get secret db-secret -n nagp -o yaml
-
-# Test database connectivity from API pod
-kubectl exec -it <api-pod> -n nagp -- curl http://postgres-service.nagp.svc.cluster.local:5432
 ```
 
-### Ingress not working
+### Data lost after pod restart?
+Check PVC is bound and mounted:
 ```bash
-# Check ingress status
-kubectl describe ingress nagp-api-ingress -n nagp
-
-# Check ALB controller
-kubectl get pods -n kube-system | grep alb
+kubectl get pvc -n nagp
+kubectl describe pvc postgres-pvc -n nagp
 ```
 
----
+### ALB not provisioning?
+Verify subnets are tagged with `kubernetes.io/role/elb=1` (AWS requirement for ALB)
 
-## 🤝 Support & Contributions
+## Cleanup
 
-For issues or questions:
-1. Check documentation files
-2. Review Kubernetes events: `kubectl get events -n nagp`
-3. Check pod logs: `kubectl logs -f <pod-name> -n nagp`
-4. Review compliance docs for requirement details
+To delete everything:
+```bash
+kubectl delete namespace nagp
+```
 
----
+This removes all pods, services, and persistent volumes. Data on the EBS volume will be retained unless the PVC is explicitly deleted.
 
-## 📋 Assignment Deliverables
+## Notes
 
-✅ **Source Code:** [GitHub Repository](https://github.com/priyanka-dhamija/forcastra-nagp-assignment)
-✅ **Docker Image:** [Docker Hub](https://hub.docker.com/r/priyankadhamija/nagp-api)
-✅ **API Endpoint:** http://nagp-api.ap-south-1.elb.amazonaws.com/api/employees
-✅ **All YAML files:** Included in k8s/ directory
-✅ **Dockerfile:** app/Dockerfile
-✅ **Documentation:** Complete and comprehensive
+- First time setup takes ~2 minutes for all pods to be ready
+- ALB provisioning can take 2-5 minutes on first deploy
+- Database initializes automatically on first pod start
+- Health endpoint confirms database connectivity, not just pod status
 
 ---
 
-## 📝 Version History
-
-| Version | Date | Status |
-|---|---|---|
-| 1.0 | 2026-06-19 | ✅ Production Ready |
-
----
-
-**Last Updated:** 2026-06-19  
-**Kubernetes Cluster:** AWS EKS (forcastra-dev-eks)  
-**Namespace:** nagp  
-**Database:** PostgreSQL 15 (Alpine)  
-**API Framework:** FastAPI (Python 3.12)
+For more details, see COMPREHENSIVE_DOCUMENTATION.md
