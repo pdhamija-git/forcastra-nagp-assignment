@@ -3,7 +3,7 @@
 ## Links
 
 - **Code Repository:** https://github.com/priyanka-dhamija/forcastra-nagp-assignment
-- **Docker Image:** ECR (350358882905.dkr.ecr.ap-south-1.amazonaws.com/test:latest)
+- **Docker Image:** ECR ($ACCOUNT_ID$.dkr.ecr.ap-south-1.amazonaws.com/test:latest)
 - **Service API URL:** http://65.1.84.73:32418/api/employees
 
 ## Screen Recording
