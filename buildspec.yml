@@ -72,7 +72,6 @@ phases:
       - kubectl apply -f k8s/04-postgres-pvc.yaml
       - kubectl apply -f k8s/05-postgres-deployment.yaml
       - kubectl apply -f k8s/06-postgres-service.yaml
-      - sed -i "s/<ACCOUNT_ID>/$AWS_ACCOUNT_ID/g" k8s/07-api-deployment.yaml
       - kubectl apply -f k8s/07-api-deployment.yaml
       - kubectl apply -f k8s/08-api-service.yaml
       - kubectl apply -f k8s/09-api-hpa.yaml
