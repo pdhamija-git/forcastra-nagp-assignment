@@ -4,7 +4,7 @@
 
 - **Code Repository:** https://github.com/pdhamija-git/forcastra-nagp-assignment
 - **Docker Image:** ECR (<ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/test:latest)
-- **Service API URL:** http://<NODE-EXTERNAL-IP>:32418/api/employees
+- **Service API URL:** `http://<NODE-EXTERNAL-IP>:32418/api/employees`
 
 ## Screen Recording
 
