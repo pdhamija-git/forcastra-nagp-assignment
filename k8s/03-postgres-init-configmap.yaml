@@ -5,10 +5,6 @@ metadata:
   namespace: nagp
 data:
   init.sql: |
-    CREATE DATABASE IF NOT EXISTS nagpdb;
-
-    \c nagpdb
-
     CREATE TABLE IF NOT EXISTS employees (
       id        SERIAL PRIMARY KEY,
       name      VARCHAR(100) NOT NULL,
