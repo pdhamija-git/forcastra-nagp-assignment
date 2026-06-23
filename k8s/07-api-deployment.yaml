@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: nagp-api
-          image: 350358882905.dkr.ecr.ap-south-1.amazonaws.com/test:latest
+          image: <ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/test:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
