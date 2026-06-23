@@ -1,266 +1,186 @@
 # NAGP Kubernetes Multi-Tier Architecture - Documentation
 
-## Overview
+## 1. Requirement Understanding
 
-This document explains the multi-tier Kubernetes application built for the NAGP assignment. It covers what was required, what we built, and why we made specific technical choices.
+The assignment required building a multi-tier Kubernetes application with:
 
-**Status:** Complete and working  
-**Date:** June 19, 2026  
-**Cluster:** AWS EKS (nagp namespace)
+- **Service API Tier:** 4 pods, externally accessible, support rolling updates and self-healing
+- **Database Tier:** 1 pod, internal-only, persistent storage, auto-recovery
+- **Configuration:** ConfigMap for non-sensitive config, Secrets for passwords
+- **Kubernetes Features:** HPA (2-8 pods), Ingress for external access, Service DNS for pod communication
+- **FinOps:** CPU/memory requests and limits, 3 cost optimization opportunities
 
----
-
-## What Was Required
-
-The assignment asked us to build a multi-tier Kubernetes application with:
-
-- Service API tier (4 pods) that's externally accessible
-- Database tier (1 pod) that's internal-only
-- Data persistence (survives pod deletion)
-- Auto-scaling with HPA
-- Rolling updates support
-- Self-healing capabilities
-- Externalized configuration (ConfigMap)
-- Secure credential storage (Kubernetes Secrets)
-- No hardcoded passwords anywhere
-- At least 3 cost optimization opportunities
-
-### Did We Meet All Requirements?
-
-Yes. Everything works and has been tested:
-
-- 4 API pods running and load-balanced ✓
-- Database accessible only internally ✓
-- Data persists after pod deletion (tested by deleting pod) ✓
-- HPA scales between 2-8 pods based on load ✓
-- Rolling updates implemented ✓
-- Self-healing via health probes ✓
-- Configuration in ConfigMap, passwords in Secrets ✓
-- 3 cost optimization strategies identified and implemented ✓
+**All requirements met and verified.**
 
 ---
 
-## Our Assumptions
+## 2. Assumptions
 
-**About the environment:**
-- AWS EKS cluster is available and running
-- Default storage class exists (EBS gp2)
-- kubectl is configured to access the cluster
-- Container registry is available (ECR)
-- Kubernetes version 1.24 or later
+**Environment:**
+- AWS EKS cluster available and running
+- Default storage class (EBS gp2) configured
+- kubectl configured for cluster access
+- Container registry available (ECR)
 
-**About technology choices:**
-- FastAPI for the API (lightweight, good performance)
-- PostgreSQL for the database (reliable, ACID compliant)
-- Docker for containerization (standard approach)
-- Kubernetes for orchestration (industry standard)
-- AWS ALB for ingress (native AWS integration)
+**Technology Stack:**
+- FastAPI for microservice (Python 3.12)
+- PostgreSQL 15 for database (Alpine)
+- Docker for containerization
+- Kubernetes 1.24+ for orchestration
+- AWS ALB for ingress controller
 
-**About the architecture:**
-- API pods are stateless (can be scaled horizontally)
-- Database uses a single pod (prevents complexity)
-- Communication between tiers uses Kubernetes DNS, not hardcoded IPs
-- Configuration is externalized, not hardcoded in code or YAML files
-- Database tier is internal-only (no external access)
+**Architecture:**
+- API pods are stateless (scale horizontally)
+- Database uses single pod with PVC for persistence
+- Service DNS used for pod communication (not hardcoded IPs)
+- Configuration externalized via ConfigMap/Secrets
 
 ---
 
-## How We Built It
+## 3. Solution Overview
 
-### The Basic Structure
+### Architecture
 
-Users on the internet make requests to an AWS ALB (load balancer). The ALB routes traffic to 4 API pods running FastAPI. These pods connect to a single PostgreSQL pod to fetch data. The PostgreSQL pod stores data on an EBS volume that persists even if the pod is deleted.
+```
+Internet Users
+    ↓
+AWS ALB/Ingress
+    ↓
+nagp-api-service (ClusterIP)
+    ├─ nagp-api pod 1 (10.0.1.55:3000)
+    ├─ nagp-api pod 2 (10.0.2.34:3000)
+    ├─ nagp-api pod 3
+    └─ nagp-api pod 4
+         ↓ (connects via postgres-service.nagp.svc.cluster.local)
+postgres-service (ClusterIP)
+    └─ postgres pod (10.0.2.xx:5432)
+         ↓
+    PVC (/var/lib/postgresql/data)
+         ↓
+    EBS Volume (1Gi persistent storage)
+```
 
-### Components and What They Do
+### Components Deployed
 
-**API Deployment (4 pods)**
-- Runs FastAPI application on port 3000
-- Each pod has 50m CPU request and 64Mi memory request
-- Gets database config from ConfigMap
-- Gets database password from Kubernetes Secret
-- Maintains connection pool to database (1-10 connections per pod)
-- Responds to HTTP requests at /api/employees
+**Service API Tier:**
+- 4 FastAPI pods on port 3000
+- Requests: 50m CPU, 64Mi Memory
+- Limits: 200m CPU, 256Mi Memory
+- RollingUpdate strategy (maxSurge: 1, maxUnavailable: 1)
+- Connection pooling: min=1, max=10 connections
+- Health probes: Liveness and Readiness configured
 
-**Database Deployment (1 pod)**
-- Runs PostgreSQL 15
-- Stores 8 employee records
-- Data lives on a 1Gi persistent volume
-- Only accessible from inside the cluster
-- Gets credentials from Kubernetes Secret
+**Database Tier:**
+- 1 PostgreSQL pod on port 5432
+- Requests: 50m CPU, 64Mi Memory
+- Limits: 200m CPU, 256Mi Memory
+- Recreate strategy (appropriate for stateful workload)
+- 8 employee records pre-loaded
+- Persistent storage: 1Gi EBS volume
 
-**Ingress (AWS ALB)**
-- External entry point for the API
-- Routes all traffic to the API service
-- Provides DNS name for accessing the application
+**Kubernetes Resources:**
+- Namespace: nagp (isolated)
+- Services: nagp-api-service, postgres-service (ClusterIP)
+- Ingress: nagp-api-ingress (AWS ALB, internet-facing)
+- ConfigMap: api-config (database configuration)
+- Secret: db-secret (encrypted password)
+- HPA: Scales 2-8 pods based on CPU (70%) and Memory (80%)
+- PDB: Minimum 2 pods always available
 
-**Kubernetes Services**
-- nagp-api-service: Routes traffic to the 4 API pods (load balancing)
-- postgres-service: Routes API pods to the database pod (internal DNS)
+---
 
-**ConfigMap (api-config)**
-- Stores non-sensitive configuration
-- Contains: DB_HOST, DB_PORT, DB_NAME, PORT
-- Can be updated without redeploying pods
+## 4. Justification for the Resources Utilized
 
-**Kubernetes Secret (db-secret)**
-- Stores sensitive data (encrypted)
-- Contains: DB_PASSWORD, DB_USER, POSTGRES_DB
-- Never visible in YAML files or logs
+### Why 4 API Pods?
 
-**Persistent Volume Claim**
-- 1Gi EBS volume for database storage
+**Requirement:** Assignment specified 4 pods
+
+**Justification:**
+- High availability: If one pod fails, 3 continue running
+- Load distribution: Spreads incoming requests across pods
+- Rolling updates: Can replace pods gradually without downtime
+- HPA baseline: Provides starting point for autoscaling (2-8 pods)
+
+### Why 50m CPU / 64Mi Memory (Requests)?
+
+**Original:** 100m CPU / 128Mi Memory  
+**Optimized:** 50m CPU / 64Mi Memory (50% savings)
+
+**Justification:**
+- Actual usage observed: 5-10m CPU, 30-35Mi Memory
+- Provides 5-10x safety buffer for spikes
+- Cluster capacity constraint required optimization
+- Limits set to 200m/256Mi (4x buffer) for emergency bursts
+
+### Why 1 Database Pod?
+
+**Justification:**
+- Stateful workload requires single source of truth
+- Replication adds complexity (not needed for assignment)
+- PVC provides reliability and data persistence
+- Auto-restart on failure maintains availability
+
+### Why Recreate Strategy for Database?
+
+**Justification:**
+- Stateful workloads should not use RollingUpdate
+- Ensures clean shutdown before new pod starts
+- Prevents data consistency issues
+- Appropriate for single-pod database
+
+### Why Service DNS (Not Pod IPs)?
+
+**Justification:**
+- Pod IPs change on restart (unstable)
+- Service DNS is stable and Kubernetes-native
+- Enables service discovery without hardcoding
+- Best practice for microservice communication
+
+### Why ConfigMap + Secrets?
+
+**ConfigMap (api-config):**
+- Stores non-sensitive: DB_HOST, DB_PORT, DB_NAME, PORT
+- Externalized from code and YAML deployment
+- Can be updated without pod restart
+
+**Secrets (db-secret):**
+- Stores sensitive: DB_PASSWORD, DB_USER, POSTGRES_DB
+- Encrypted at rest by Kubernetes
+- Not visible in YAML files or application logs
+
+### Why HPA (2-8 pods)?
+
+**Min 2 pods:**
+- Ensures high availability (at least 2 always running)
+
+**Max 8 pods:**
+- Cost control (prevents runaway scaling)
+
+**CPU 70% threshold:**
+- Scales up before resource exhaustion
+
+**Memory 80% threshold:**
+- Memory is more critical than CPU
+
+### Why PVC (1Gi)?
+
+**Justification:**
 - Data survives pod restarts and deletions
-
-**HPA (Horizontal Pod Autoscaler)**
-- Monitors CPU and memory usage
-- Scales up when CPU exceeds 70% or memory exceeds 80%
-- Minimum of 2 pods, maximum of 8 pods
-- Adds pods faster than it removes them (responsive to spikes)
-
-**Pod Disruption Budget**
-- Ensures at least 2 API pods are always available
-- Prevents all pods from being evicted during cluster maintenance
-
----
-
-## Why We Made These Choices
-
-### 4 API Pods
-
-The assignment required exactly 4 pods. Beyond that requirement, 4 pods gives us:
-- High availability (if one pod fails, three keep running)
-- Ability to do rolling updates without service interruption
-- A baseline for HPA to scale up or down from
-
-We use a RollingUpdate strategy that allows 1 extra pod during updates (maxSurge: 1) and ensures we always have at least 3 pods available (maxUnavailable: 1).
-
-### Resource Allocation: 50m CPU / 64Mi Memory
-
-We started with 100m CPU and 128Mi memory per pod, but the cluster had capacity issues. We monitored actual usage and found:
-- Actual CPU usage: 5-10m per pod
-- Actual memory usage: 30-35Mi per pod
-
-We optimized down to 50m CPU and 64Mi memory. This gives us about 5-10x buffer for spikes while saving about 50% of resources. The limits are set to 200m CPU and 256Mi memory (4x the requests) to handle emergencies.
-
-### Single Database Pod
-
-PostgreSQL needs a single source of truth to avoid data conflicts. A single pod with persistent storage (PVC) is simpler than trying to replicate a database, especially for this assignment. When the pod crashes, Kubernetes automatically restarts it, and the PVC reconnects to the same data.
-
-### Using Service DNS Instead of Pod IPs
-
-We connect pods using Kubernetes DNS names like `postgres-service.nagp.svc.cluster.local` instead of hardcoding Pod IPs. This is a Kubernetes best practice because:
-- Pod IPs change when pods restart
-- Service DNS names are stable and never change
-- It's the idiomatic way to do service discovery in Kubernetes
-
-### ConfigMap for Configuration, Secrets for Passwords
-
-Configuration like database host and port live in a ConfigMap (which is easy to view and update). Passwords live in Kubernetes Secrets (which are encrypted). We never hardcode anything in YAML files or code.
-
-This separation means:
-- Configuration can be changed without redeploying
-- Passwords are encrypted and protected
-- Different environments can use different configs (dev vs prod)
-
-### AWS ALB Ingress for External Access
-
-We use Kubernetes Ingress with AWS ALB because:
-- It provides a stable DNS name
-- It handles routing at the application level (L7)
-- It integrates natively with AWS EKS
-- It can handle TLS/HTTPS (if needed)
-
-Other options like NodePort (exposes on a high port number) or LoadBalancer Service (expensive) weren't as practical.
-
-### HPA Configuration
-
-The HPA is configured to:
-- Keep at least 2 pods running (high availability)
-- Scale up to 8 pods maximum (cost control)
-- Trigger scale-up at 70% CPU or 80% memory (before getting too busy)
-- Add 2 pods at a time when scaling up (responsive)
-- Remove 1 pod at a time when scaling down (avoid thrashing)
-
-### Pod Disruption Budget
-
-This ensures that during cluster upgrades or node maintenance, Kubernetes always keeps at least 2 API pods running. It prevents a situation where the API goes completely down during maintenance.
-
----
-
-## File Organization
-
-```
-k8s/
-├── 00-namespace.yaml              # Create nagp namespace
-├── 02-api-pod-disruption-budget.yaml
-├── 03-postgres-init-configmap.yaml # Database initialization script
-├── 04-postgres-pvc.yaml           # Persistent storage
-├── 05-postgres-deployment.yaml
-├── 06-postgres-service.yaml
-├── 07-api-deployment.yaml
-├── 08-api-service.yaml
-├── 09-api-hpa.yaml
-└── 10-api-ingress.yaml
-
-app/
-├── main.py                        # FastAPI application
-├── Dockerfile
-└── requirements.txt
-
-buildspec.yml                       # CI/CD pipeline
-```
-
-### How Configuration Works
-
-**ConfigMap (api-config)** contains:
-```
-DB_HOST=postgres-service.nagp.svc.cluster.local
-DB_PORT=5432
-DB_NAME=nagpdb
-PORT=3000
-```
-
-**Secrets (db-secret)** contains (encrypted):
-```
-DB_USER=postgres
-DB_PASSWORD=[encrypted]
-POSTGRES_DB=nagpdb
-```
-
-**Application code** reads from environment:
-```python
-host = os.environ.get("DB_HOST")
-password = os.environ.get("DB_PASSWORD")
-# Never hardcoded anywhere
-```
-
----
-
-## Verification
-
-### All Requirements Working
-
-- **4 API pods running** - Can verify with: `kubectl get pods -n nagp`
-- **Database persistence** - Tested by deleting pod, confirming data survived
-- **Self-healing** - Health probes configured and working
-- **Auto-scaling** - HPA configured and monitoring metrics
-- **Rolling updates** - RollingUpdate strategy implemented
-- **ConfigMap/Secrets** - Configuration externalized, passwords encrypted
-- **No hardcoded credentials** - Passwords only in Kubernetes Secrets
-- **Cost optimized** - 50% resource reduction achieved
+- 1Gi provides 1000x capacity for 8 records
+- EBS gp2 is cost-effective for POC
+- Meets data persistence requirement
 
 ### Cost Optimization Strategies
 
-1. **Resource right-sizing** - Reduced from 100m/128Mi to 50m/64Mi (50% savings)
-2. **Pod Disruption Budget** - Prevents unnecessary pod churn during maintenance
-3. **HPA configuration** - Scales up to 8 pods max, preventing runaway costs
+**1. Resource Right-Sizing**
+- Reduced from 100m/128Mi to 50m/64Mi per pod
+- Savings: 50% reduction = ~4 pods worth of capacity freed
 
----
+**2. Pod Disruption Budget**
+- Prevents unnecessary pod churn during maintenance
+- Reduces restart overhead and costs
 
-## Summary
-
-We built a production-ready multi-tier Kubernetes application that meets all assignment requirements. The API tier scales automatically based on load, the database tier persists data reliably, and everything is configured securely using Kubernetes-native features.
-
-The architecture demonstrates Kubernetes best practices: stateless applications that can scale, externalized configuration, secure credential management, and proper networking patterns using service discovery.
-
-Everything has been tested and verified to work as intended.
+**3. HPA Tuning**
+- Scales down when load drops (saves resources)
+- Max 8 pods prevents over-scaling
+- Conservative scale-down (-1 pod) prevents thrashing
