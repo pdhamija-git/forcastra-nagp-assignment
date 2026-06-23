@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: nagp
+data:
+  DB_HOST: postgres-service.nagp.svc.cluster.local
+  DB_PORT: "5432"
+  DB_NAME: nagpdb
+  PORT: "3000"
